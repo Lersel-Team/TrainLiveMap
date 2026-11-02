@@ -62,6 +62,8 @@ function locate(chain,row){
 function target(t){
   const c=chains[t.chain]; if(!c) return null;
   const base=locate(t.chain,t.row); if(!base) return null;
+  // A train heading up the chain from a station belongs on the stretch ahead, not at the end of the one behind.
+  if(t.dir>0&&base.f>=1&&base.seg<c.length-2) return {seg:base.seg+1,f:0,dir:t.dir};
   return {seg:base.seg, f:base.f, dir:t.dir};
 }
 function coord(chain,seg,f){const c=chains[chain],a=c[seg],b=c[seg+1]||a;return [a.lon+(b.lon-a.lon)*f,a.lat+(b.lat-a.lat)*f];}
@@ -95,13 +97,13 @@ function schedulePos(s){
     else if(r<K[i].dep) r=K[i].dep;
     else if(K[i+1]&&r>K[i+1].arr) r=K[i+1].arr;
   }
-  if(r<=K[0].r) return {lon:K[0].lon,lat:K[0].lat,next:K[1]};
+  if(r<=K[0].r) return {lon:K[0].lon,lat:K[0].lat,next:K[1],v:0};
   for(let j=0;j<K.length-1;j++){const a=K[j],b=K[j+1];
-    if(r<=a.dep) return {lon:a.lon,lat:a.lat,next:b};
-    if(r<b.arr){const f=(r-a.dep)/(b.arr-a.dep);return {lon:a.lon+(b.lon-a.lon)*f,lat:a.lat+(b.lat-a.lat)*f,next:b};}
-    if(r<=b.dep) return {lon:b.lon,lat:b.lat,next:K[j+2]||b};
+    if(r<=a.dep) return {lon:a.lon,lat:a.lat,next:b,v:0};
+    if(r<b.arr){const f=(r-a.dep)/(b.arr-a.dep);return {lon:a.lon+(b.lon-a.lon)*f,lat:a.lat+(b.lat-a.lat)*f,next:b,v:Math.abs(b.km-a.km)/((b.arr-a.dep)/3600)};}
+    if(r<=b.dep) return {lon:b.lon,lat:b.lat,next:K[j+2]||b,v:0};
   }
-  const l=K[K.length-1];return {lon:l.lon,lat:l.lat,next:l};
+  const l=K[K.length-1];return {lon:l.lon,lat:l.lat,next:l,v:0};
 }
 let last=performance.now();
 let lastTrainDraw=0;
@@ -113,11 +115,12 @@ function frame(now){
     if(!(drawAll||(following&&id===selected))){t.dt=(t.dt||0)+dt;continue;}
     const tdt=(t.dt||0)+dt; t.dt=0;
     const sp=schedulePos(s); t.sp=sp;
-    if(sp){place(t,id,[sp.lon,sp.lat],sp.next,bd);continue;}
+    if(sp){t.speed=sp.v;place(t,id,[sp.lon,sp.lat],sp.next,bd);continue;}
     const c=chains[s.chain]; if(!c) continue;
     if(!s.atStation && s.status===0){ // dead reckoning toward next station in travel direction, capped at that station
       const a=c[t.seg],b=c[t.seg+1]; if(b){const len=Math.max(hav(a,b),0.1);t.f+=s.dir*(SPEED_KMH/3600)*tdt/len;
         t.f=Math.min(Math.max(t.f,0),1);}}
+    const waiting=s.atStation||s.status!==0||(s.dir>0?t.f>=1:t.f<=0);t.speed=waiting?0:SPEED_KMH;
     place(t,id,coord(s.chain,t.seg,t.f),s.dir>0?c[t.seg+1]||c[t.seg]:c[t.seg],bd);}
   if(drawAll||following)drawBoxes();
   if(following&&selected&&trains[selected]){
@@ -128,7 +131,7 @@ function frame(now){
 function bearingTo(ll,p){const t=x=>x*Math.PI/180,y=Math.sin(t(p.lon-ll.lng))*Math.cos(t(p.lat)),x=Math.cos(t(ll.lat))*Math.sin(t(p.lat))-Math.sin(t(ll.lat))*Math.cos(t(p.lat))*Math.cos(t(p.lon-ll.lng));return (Math.atan2(y,x)*180/Math.PI+360)%360;}
 function select(id){selected=id;$('pick').value=id;Object.values(trains).forEach(t=>t.el.classList.remove('sel'));trains[id]?.el.classList.add('sel');drawBoxes();}
 function info(){const t=trains[selected];if(!t||!t.s){$('info').textContent='';return;}const s=t.s;
- $('info').innerHTML=`Train <b>${s.no}</b> · line ${s.line}<br>${s.atStation?'At station':'Running (estimated)'} · ${t.sp?'timetable':'no timetable'}<br>Delay: ${s.lateMin} min · ${s.time}`;}
+ $('info').innerHTML=`Train <b>${s.no}</b> · line ${s.line}<br>${s.atStation?'At station':'Running (estimated)'} · ${t.sp?'timetable':'no timetable'}<br>Delay: ${s.lateMin} min · ${s.time}<br>Est. speed: ${t.speed==null?'–':t.speed===0?'0 km/h (stopped or waiting for next report)':Math.round(t.speed)+' km/h ('+(t.sp?'timetable average':'assumed')+')'}`;}
 $('pick').onchange=e=>e.target.value&&select(e.target.value);
 $('follow').onclick=()=>{if(selected){following=true;}};
 $('stop').onclick=()=>{following=false;map.easeTo({pitch:55,bearing:0});};
@@ -217,6 +220,8 @@ function drawBoxes(){
   const src=map.getSource('trains3d');if(!src)return;
   const fs=[];
   for(const id in trains){const t=trains[id];if(!t.pos||!t.s)continue;
+    const tag=id===selected&&t.speed!=null?`${t.s.no} · ${Math.round(t.speed)} km/h`:t.s.no;
+    if(t.el.textContent!==tag)t.el.textContent=tag;
     const m=mpp(t.pos[1]),L=Math.max(200,34*m),W=Math.max(14,9*m),H=Math.max(14,8*m);
     fs.push(quad(t.pos[0],t.pos[1],t.head||0,L,W,{id,c:id===selected?'#ffee00':COLORS[t.s.line],b:Math.min(2.5,H*.1),h:H}));}
   src.setData({type:'FeatureCollection',features:fs});
