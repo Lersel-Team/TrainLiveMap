@@ -8,6 +8,9 @@ html,body,#map{margin:0;height:100%;font-family:system-ui,sans-serif}
 #panel{position:absolute;top:10px;left:10px;background:#fffd;padding:10px;border-radius:8px;max-width:260px;font-size:13px}
 .t{width:22px;height:22px;border-radius:50%;border:2px solid #fff;color:#fff;font:bold 9px/18px sans-serif;text-align:center;cursor:pointer;box-shadow:0 0 4px #000}
 .sel{outline:3px solid #ff0}
+.st{font:11px/1.1 system-ui,sans-serif;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;pointer-events:none;transform-origin:left}
+.st b{font-weight:600}.st span{opacity:.85;font-size:10px}
+#map.far .st.minor{display:none}#map.nolabels .st{display:none}
 button{margin:2px}
 </style></head><body>
 <div id="map"></div>
@@ -15,13 +18,15 @@ button{margin:2px}
  <b>TrainLiveMap</b> <span id="upd"></span><br>
  <select id="base"><option value="sat">Satellite</option><option value="osm">OpenStreetMap</option></select>
  <label><input type="checkbox" id="ter" checked> 3D terrain</label><br>
+ <label><input type="checkbox" id="rail" checked> Rail lines</label>
+ <label><input type="checkbox" id="labels" checked> Station labels</label><br>
  <div>Tilt <input id="pitch" type="range" min="0" max="85" value="0" style="width:150px"> <span id="pv">0</span>°</div>
  <div>Rotate <input id="brg" type="range" min="0" max="360" value="0" style="width:130px"> <span id="bv">0</span>°</div>
  <div>Terrain ×<input id="exg" type="range" min="1" max="5" step="0.1" value="1.6" style="width:130px"> <span id="ev">1.6</span></div>
  <select id="pick"><option value="">— select train —</option></select>
  <button id="follow">Follow</button><button id="stop">Stop</button>
  <div id="info" style="margin-top:6px"></div>
- <div style="margin-top:6px;color:#555">Positions between stations are estimated (dead reckoning).</div>
+ <div style="margin-top:6px;color:#555">Positions are estimated: timetable plus live delay where available, otherwise 60 km/h.</div>
 </div>
 <script>
 const SPEED_KMH = 60, COLORS = {1:'#c0392b',2:'#2980b9',3:'#27ae60',4:'#8e44ad'};
@@ -43,7 +48,7 @@ $('brg').oninput=e=>map.setBearing(+e.target.value);
 map.on('pitch',()=>{const v=Math.round(map.getPitch());$('pitch').value=v;$('pv').textContent=v;});
 map.on('rotate',()=>{const v=Math.round((map.getBearing()+360)%360);$('brg').value=v;$('bv').textContent=v;});
 
-let chains={}, trains={}, selected=null, following=false;
+let chains={}, timetable={}, trains={}, selected=null, following=false;
 const hav=(a,b)=>{const R=6371,t=x=>x*Math.PI/180,dl=t(b.lat-a.lat),dn=t(b.lon-a.lon);const h=Math.sin(dl/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h));};
 // fractional row -> coordinate along the chain of stations
 function locate(chain,row){
@@ -51,7 +56,7 @@ function locate(chain,row){
   if(row<=c[0].row) return {lat:c[0].lat,lon:c[0].lon,seg:0,f:0};
   for(let i=0;i<c.length-1;i++) if(row<=c[i+1].row){const f=(row-c[i].row)/(c[i+1].row-c[i].row);
     return {lat:c[i].lat+(c[i+1].lat-c[i].lat)*f,lon:c[i].lon+(c[i+1].lon-c[i].lon)*f,seg:i,f};}
-  const l=c[c.length-1]; return {lat:l.lat,lon:l.lon,seg:c.length-2,f:1};
+  const l=c[c.length-1]; return {lat:l.lat,lon:l.lon,seg:Math.max(c.length-2,0),f:c.length>1?1:0};
 }
 // Convert server row to a position; a train between rows is shown mid-cell, then dead-reckoned toward the next station.
 function target(t){
@@ -78,27 +83,65 @@ async function refresh(){
   }
   for(const id of Object.keys(trains)) if(!seen.has(id)){trains[id].marker.remove();delete trains[id];[...$('pick').options].filter(o=>o.value===id).forEach(o=>o.remove());}
 }
+// Schedule estimate: scheduled position at (now - delay), never past the next station after the one the live feed reports.
+const DAY=86400;
+function bkkSec(){const d=new Date();return ((d.getTime()/1000+7*3600)%DAY);}
+function schedulePos(s){
+  const tt=timetable[s.no]; if(!tt) return null;
+  const K=tt.knots; let r=((bkkSec()-s.lateMin*60-tt.t0)%DAY+DAY)%DAY;
+  const i=s.st?K.findIndex(k=>k.key===s.st):-1;
+  if(i>=0){
+    if(s.atStation||s.status!==0) r=K[i].dep;
+    else if(r<K[i].dep) r=K[i].dep;
+    else if(K[i+1]&&r>K[i+1].arr) r=K[i+1].arr;
+  }
+  if(r<=K[0].r) return {lon:K[0].lon,lat:K[0].lat,next:K[1]};
+  for(let j=0;j<K.length-1;j++){const a=K[j],b=K[j+1];
+    if(r<=a.dep) return {lon:a.lon,lat:a.lat,next:b};
+    if(r<b.arr){const f=(r-a.dep)/(b.arr-a.dep);return {lon:a.lon+(b.lon-a.lon)*f,lat:a.lat+(b.lat-a.lat)*f,next:b};}
+    if(r<=b.dep) return {lon:b.lon,lat:b.lat,next:K[j+2]||b};
+  }
+  const l=K[K.length-1];return {lon:l.lon,lat:l.lat,next:l};
+}
 let last=performance.now();
 function frame(now){
   const dt=(now-last)/1000; last=now;
   for(const id in trains){const t=trains[id],s=t.s; if(!s) continue;
+    const sp=schedulePos(s); t.sp=sp;
+    if(sp){t.marker.setLngLat([sp.lon,sp.lat]);continue;}
     const c=chains[s.chain]; if(!c) continue;
     if(!s.atStation && s.status===0){ // dead reckoning toward next station in travel direction, capped at that station
       const a=c[t.seg],b=c[t.seg+1]; if(b){const len=Math.max(hav(a,b),0.1);t.f+=s.dir*(SPEED_KMH/3600)*dt/len;
         t.f=Math.min(Math.max(t.f,0),1);}}
     t.marker.setLngLat(coord(s.chain,t.seg,t.f));}
   if(following&&selected&&trains[selected]){
-    const t=trains[selected],ll=t.marker.getLngLat(),c=chains[t.s.chain],b=c[t.seg+(t.s.dir>0?1:0)]||c[t.seg];
-    map.jumpTo({center:ll,bearing:bearingTo(ll,t.s.dir>0?c[t.seg+1]||c[t.seg]:c[t.seg]),pitch:72,zoom:Math.max(map.getZoom(),14)});}
+    const t=trains[selected],ll=t.marker.getLngLat(),c=chains[t.s.chain];
+    const ahead=t.sp?t.sp.next:(t.s.dir>0?c[t.seg+1]||c[t.seg]:c[t.seg]);
+    map.jumpTo({center:ll,bearing:bearingTo(ll,ahead),pitch:72,zoom:Math.max(map.getZoom(),14)});}
   info(); requestAnimationFrame(frame);
 }
 function bearingTo(ll,p){const t=x=>x*Math.PI/180,y=Math.sin(t(p.lon-ll.lng))*Math.cos(t(p.lat)),x=Math.cos(t(ll.lat))*Math.sin(t(p.lat))-Math.sin(t(ll.lat))*Math.cos(t(p.lat))*Math.cos(t(p.lon-ll.lng));return (Math.atan2(y,x)*180/Math.PI+360)%360;}
 function select(id){selected=id;$('pick').value=id;Object.values(trains).forEach(t=>t.el.classList.remove('sel'));trains[id]?.el.classList.add('sel');}
 function info(){const t=trains[selected];if(!t||!t.s){$('info').textContent='';return;}const s=t.s;
- $('info').innerHTML=`Train <b>${s.no}</b> · line ${s.line}<br>${s.atStation?'At station':'Running (estimated)'}<br>Delay: ${s.lateMin} min · ${s.time}`;}
+ $('info').innerHTML=`Train <b>${s.no}</b> · line ${s.line}<br>${s.atStation?'At station':'Running (estimated)'} · ${t.sp?'timetable':'no timetable'}<br>Delay: ${s.lateMin} min · ${s.time}`;}
 $('pick').onchange=e=>e.target.value&&select(e.target.value);
 $('follow').onclick=()=>{if(selected){following=true;}};
 $('stop').onclick=()=>{following=false;map.easeTo({pitch:55,bearing:0});};
 map.on('dragstart',()=>{following=false;});
-map.on('load',async()=>{await refresh();setInterval(refresh,15000);requestAnimationFrame(frame);});
+async function addRailAndStations(){
+  map.addSource('rail',{type:'geojson',data:'/api/rail',attribution:'Rail lines and stations © OpenStreetMap contributors'});
+  map.addLayer({id:'rail-case',type:'line',source:'rail',paint:{'line-color':'#000','line-opacity':.55,'line-width':['interpolate',['linear'],['zoom'],5,1.6,14,6]}});
+  map.addLayer({id:'rail',type:'line',source:'rail',paint:{'line-color':'#ffcc33','line-width':['interpolate',['linear'],['zoom'],5,.8,14,3.5]}});
+  const st=await fetch('/api/stations').then(r=>r.json());
+  map.addSource('st',{type:'geojson',data:{type:'FeatureCollection',features:st.map(s=>({type:'Feature',properties:{},geometry:{type:'Point',coordinates:[s.lon,s.lat]}}))}});
+  map.addLayer({id:'st',type:'circle',source:'st',paint:{'circle-radius':['interpolate',['linear'],['zoom'],5,1.5,12,5],'circle-color':'#fff','circle-stroke-color':'#000','circle-stroke-width':1}});
+  for(const s of st){const el=document.createElement('div');el.className='st'+(s.major?'':' minor');
+    const b=document.createElement('b');b.textContent=s.th;el.appendChild(b);
+    if(s.en&&s.en!==s.th){const e=document.createElement('span');e.textContent=' '+s.en;el.appendChild(e);}
+    new maplibregl.Marker({element:el,anchor:'left',offset:[7,0]}).setLngLat([s.lon,s.lat]).addTo(map);}
+  const far=()=>$('map').classList.toggle('far',map.getZoom()<8);map.on('zoom',far);far();
+}
+$('rail').onchange=e=>['rail-case','rail'].forEach(l=>map.setLayoutProperty(l,'visibility',e.target.checked?'visible':'none'));
+$('labels').onchange=e=>{$('map').classList.toggle('nolabels',!e.target.checked);map.setLayoutProperty('st','visibility',e.target.checked?'visible':'none');};
+map.on('load',async()=>{await addRailAndStations();timetable=await fetch('/api/timetable').then(r=>r.json());await refresh();setInterval(refresh,15000);requestAnimationFrame(frame);});
 </script></body></html>

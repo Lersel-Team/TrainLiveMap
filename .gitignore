@@ -1,1 +1,3 @@
 node_modules/
+data/timetable/*.json
+server.log
