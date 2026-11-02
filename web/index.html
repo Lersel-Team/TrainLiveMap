@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>TrainLiveMap 3D</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+<style>
+html,body,#map{margin:0;height:100%;font-family:system-ui,sans-serif}
+#panel{position:absolute;top:10px;left:10px;background:#fffd;padding:10px;border-radius:8px;max-width:260px;font-size:13px}
+.t{width:22px;height:22px;border-radius:50%;border:2px solid #fff;color:#fff;font:bold 9px/18px sans-serif;text-align:center;cursor:pointer;box-shadow:0 0 4px #000}
+.sel{outline:3px solid #ff0}
+button{margin:2px}
+</style></head><body>
+<div id="map"></div>
+<div id="panel">
+ <b>TrainLiveMap</b> <span id="upd"></span><br>
+ <select id="base"><option value="sat">Satellite</option><option value="osm">OpenStreetMap</option></select>
+ <label><input type="checkbox" id="ter" checked> 3D terrain</label><br>
+ <select id="pick"><option value="">— select train —</option></select>
+ <button id="follow">Follow</button><button id="stop">Stop</button>
+ <div id="info" style="margin-top:6px"></div>
+ <div style="margin-top:6px;color:#555">Positions between stations are estimated (dead reckoning).</div>
+</div>
+<script>
+const SPEED_KMH = 60, COLORS = {1:'#c0392b',2:'#2980b9',3:'#27ae60',4:'#8e44ad'};
+const map = new maplibre.Map({container:'map',center:[100.9,14.5],zoom:6.5,pitch:55,maxPitch:85,style:{version:8,
+ sources:{
+  sat:{type:'raster',tiles:['https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/g/{z}/{y}/{x}.jpg'],tileSize:256,maxzoom:13,attribution:'Sentinel-2 cloudless by EOX (Copernicus data 2021)'},
+  osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,maxzoom:19,attribution:'© OpenStreetMap contributors'},
+  dem:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],encoding:'terrarium',tileSize:256,maxzoom:15,attribution:'Terrain: AWS Open Data / Mapzen'}},
+ layers:[{id:'sat',type:'raster',source:'sat'},{id:'osm',type:'raster',source:'osm',layout:{visibility:'none'}}],
+ terrain:{source:'dem',exaggeration:1.6}}});
+map.addControl(new maplibre.NavigationControl({visualizePitch:true}));
+const $=id=>document.getElementById(id);
+$('base').onchange=e=>{map.setLayoutProperty('sat','visibility',e.target.value==='sat'?'visible':'none');map.setLayoutProperty('osm','visibility',e.target.value==='osm'?'visible':'none');};
+$('ter').onchange=e=>map.setTerrain(e.target.checked?{source:'dem',exaggeration:1.6}:null);
+
+let chains={}, trains={}, selected=null, following=false;
+const hav=(a,b)=>{const R=6371,t=x=>x*Math.PI/180,dl=t(b.lat-a.lat),dn=t(b.lon-a.lon);const h=Math.sin(dl/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h));};
+// fractional row -> coordinate along the chain of stations
+function locate(chain,row){
+  const c=chains[chain]; if(!c) return null;
+  if(row<=c[0].row) return {lat:c[0].lat,lon:c[0].lon,seg:0,f:0};
+  for(let i=0;i<c.length-1;i++) if(row<=c[i+1].row){const f=(row-c[i].row)/(c[i+1].row-c[i].row);
+    return {lat:c[i].lat+(c[i+1].lat-c[i].lat)*f,lon:c[i].lon+(c[i+1].lon-c[i].lon)*f,seg:i,f};}
+  const l=c[c.length-1]; return {lat:l.lat,lon:l.lon,seg:c.length-2,f:1};
+}
+// Convert server row to a position; a train between rows is shown mid-cell, then dead-reckoned toward the next station.
+function target(t){
+  const c=chains[t.chain]; if(!c) return null;
+  const base=locate(t.chain,t.row); if(!base) return null;
+  return {seg:base.seg, f:base.f, dir:t.dir};
+}
+function coord(chain,seg,f){const c=chains[chain],a=c[seg],b=c[seg+1]||a;return [a.lon+(b.lon-a.lon)*f,a.lat+(b.lat-a.lat)*f];}
+
+async function refresh(){
+  const [cs,ts]=await Promise.all([fetch('/api/chains').then(r=>r.json()),fetch('/api/trains').then(r=>r.json())]);
+  chains=cs; $('upd').textContent=ts.updated?new Date(ts.updated).toLocaleTimeString():'';
+  const seen=new Set(), now=performance.now();
+  for(const s of ts.trains){
+    seen.add(s.id); const tg=target(s); if(!tg) continue;
+    let t=trains[s.id];
+    if(!t){const el=document.createElement('div');el.className='t';el.style.background=COLORS[s.line];el.textContent=s.no;
+      el.onclick=()=>select(s.id);t={el,marker:new maplibre.Marker({element:el}).setLngLat(coord(s.chain,tg.seg,tg.f)).addTo(map),seg:tg.seg,f:tg.f};trains[s.id]=t;
+      const o=document.createElement('option');o.value=s.id;o.textContent=s.no;$('pick').appendChild(o);}
+    // keep dead-reckoned position unless server moved the train to a different segment/further along
+    const moved = tg.seg!==t.seg || (tg.dir*(tg.f-t.f)>0.15) ;
+    if(moved||!t.s||t.s.chain!==s.chain){t.seg=tg.seg;t.f=tg.f;}
+    t.s=s;
+  }
+  for(const id of Object.keys(trains)) if(!seen.has(id)){trains[id].marker.remove();delete trains[id];[...$('pick').options].filter(o=>o.value===id).forEach(o=>o.remove());}
+}
+let last=performance.now();
+function frame(now){
+  const dt=(now-last)/1000; last=now;
+  for(const id in trains){const t=trains[id],s=t.s; if(!s) continue;
+    const c=chains[s.chain]; if(!c) continue;
+    if(!s.atStation && s.status===0){ // dead reckoning toward next station in travel direction, capped at that station
+      const a=c[t.seg],b=c[t.seg+1]; if(b){const len=Math.max(hav(a,b),0.1);t.f+=s.dir*(SPEED_KMH/3600)*dt/len;
+        t.f=Math.min(Math.max(t.f,0),1);}}
+    t.marker.setLngLat(coord(s.chain,t.seg,t.f));}
+  if(following&&selected&&trains[selected]){
+    const t=trains[selected],ll=t.marker.getLngLat(),c=chains[t.s.chain],b=c[t.seg+(t.s.dir>0?1:0)]||c[t.seg];
+    map.jumpTo({center:ll,bearing:bearingTo(ll,t.s.dir>0?c[t.seg+1]||c[t.seg]:c[t.seg]),pitch:72,zoom:Math.max(map.getZoom(),14)});}
+  info(); requestAnimationFrame(frame);
+}
+function bearingTo(ll,p){const t=x=>x*Math.PI/180,y=Math.sin(t(p.lon-ll.lng))*Math.cos(t(p.lat)),x=Math.cos(t(ll.lat))*Math.sin(t(p.lat))-Math.sin(t(ll.lat))*Math.cos(t(p.lat))*Math.cos(t(p.lon-ll.lng));return (Math.atan2(y,x)*180/Math.PI+360)%360;}
+function select(id){selected=id;$('pick').value=id;Object.values(trains).forEach(t=>t.el.classList.remove('sel'));trains[id]?.el.classList.add('sel');}
+function info(){const t=trains[selected];if(!t||!t.s){$('info').textContent='';return;}const s=t.s;
+ $('info').innerHTML=`Train <b>${s.no}</b> · line ${s.line}<br>${s.atStation?'At station':'Running (estimated)'}<br>Delay: ${s.lateMin} min · ${s.time}`;}
+$('pick').onchange=e=>e.target.value&&select(e.target.value);
+$('follow').onclick=()=>{if(selected){following=true;}};
+$('stop').onclick=()=>{following=false;map.easeTo({pitch:55,bearing:0});};
+map.on('dragstart',()=>{following=false;});
+map.on('load',async()=>{await refresh();setInterval(refresh,15000);requestAnimationFrame(frame);});
+</script></body></html>

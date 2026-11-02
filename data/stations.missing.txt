@@ -1,0 +1,19 @@
+1:1130001 LD Depot / LD Depot
+1:1130002 DCTA / DCTA
+2:2130001 LD Depot / LD Depot
+2:2130002 DCTA / DCTA
+2:2900007 ท่านาแล้ง / Thanalaeng
+2:2900008 เวียงจันทน์ (คำสะหวาด) / Vientiane (Khamsavath)
+2:21100007 บุฤาษี / Bu Rusi
+3:3100008 ICD ลาดกระบัง / Inland Container Depot
+3:3100009 ICD ลาดกระบัง / Inland Container Depot
+3:3200008 ICD ลาดกระบัง / Inland Container Depot
+3:3200009 ICD ลาดกระบัง / Inland Container Depot
+3:3200012 คลองเปรง / Khlong Preng
+3:3430007 ท่าเรือแหลมฉบัง / Laem Chabang Port
+3:3430008 ท่าเรือแหลมฉบัง / Laem Chabang Port
+4:4200001 LD Depot / LD Depot
+4:4200002 DCTA / DCTA
+4:4300007 คลองตาคต / Khlong Ta Khot
+4:4300009 เจ็ดเสมียน / Chet Samian
+4:41420002 คลองแงะ / Khlong Ngae
