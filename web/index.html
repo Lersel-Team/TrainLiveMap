@@ -15,6 +15,9 @@ button{margin:2px}
  <b>TrainLiveMap</b> <span id="upd"></span><br>
  <select id="base"><option value="sat">Satellite</option><option value="osm">OpenStreetMap</option></select>
  <label><input type="checkbox" id="ter" checked> 3D terrain</label><br>
+ <div>Tilt <input id="pitch" type="range" min="0" max="85" value="0" style="width:150px"> <span id="pv">0</span>°</div>
+ <div>Rotate <input id="brg" type="range" min="0" max="360" value="0" style="width:130px"> <span id="bv">0</span>°</div>
+ <div>Terrain ×<input id="exg" type="range" min="1" max="5" step="0.1" value="1.6" style="width:130px"> <span id="ev">1.6</span></div>
  <select id="pick"><option value="">— select train —</option></select>
  <button id="follow">Follow</button><button id="stop">Stop</button>
  <div id="info" style="margin-top:6px"></div>
@@ -32,7 +35,13 @@ const map = new maplibregl.Map({container:'map',bounds:[[97.3,5.6],[105.7,20.5]]
 map.addControl(new maplibregl.NavigationControl({visualizePitch:true}));
 const $=id=>document.getElementById(id);
 $('base').onchange=e=>{map.setLayoutProperty('sat','visibility',e.target.value==='sat'?'visible':'none');map.setLayoutProperty('osm','visibility',e.target.value==='osm'?'visible':'none');};
-$('ter').onchange=e=>map.setTerrain(e.target.checked?{source:'dem',exaggeration:1.6}:null);
+const exag=()=>+$('exg').value;
+$('ter').onchange=e=>map.setTerrain(e.target.checked?{source:'dem',exaggeration:exag()}:null);
+$('exg').oninput=e=>{$('ev').textContent=exag();if($('ter').checked)map.setTerrain({source:'dem',exaggeration:exag()});};
+$('pitch').oninput=e=>map.setPitch(+e.target.value);
+$('brg').oninput=e=>map.setBearing(+e.target.value);
+map.on('pitch',()=>{const v=Math.round(map.getPitch());$('pitch').value=v;$('pv').textContent=v;});
+map.on('rotate',()=>{const v=Math.round((map.getBearing()+360)%360);$('brg').value=v;$('bv').textContent=v;});
 
 let chains={}, trains={}, selected=null, following=false;
 const hav=(a,b)=>{const R=6371,t=x=>x*Math.PI/180,dl=t(b.lat-a.lat),dn=t(b.lon-a.lon);const h=Math.sin(dl/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h));};
