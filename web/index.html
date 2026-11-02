@@ -22,14 +22,14 @@ button{margin:2px}
 </div>
 <script>
 const SPEED_KMH = 60, COLORS = {1:'#c0392b',2:'#2980b9',3:'#27ae60',4:'#8e44ad'};
-const map = new maplibre.Map({container:'map',center:[100.9,14.5],zoom:6.5,pitch:55,maxPitch:85,style:{version:8,
+const map = new maplibregl.Map({container:'map',center:[100.9,14.5],zoom:6.5,pitch:55,maxPitch:85,style:{version:8,
  sources:{
   sat:{type:'raster',tiles:['https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/g/{z}/{y}/{x}.jpg'],tileSize:256,maxzoom:13,attribution:'Sentinel-2 cloudless by EOX (Copernicus data 2021)'},
   osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,maxzoom:19,attribution:'© OpenStreetMap contributors'},
   dem:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],encoding:'terrarium',tileSize:256,maxzoom:15,attribution:'Terrain: AWS Open Data / Mapzen'}},
  layers:[{id:'sat',type:'raster',source:'sat'},{id:'osm',type:'raster',source:'osm',layout:{visibility:'none'}}],
  terrain:{source:'dem',exaggeration:1.6}}});
-map.addControl(new maplibre.NavigationControl({visualizePitch:true}));
+map.addControl(new maplibregl.NavigationControl({visualizePitch:true}));
 const $=id=>document.getElementById(id);
 $('base').onchange=e=>{map.setLayoutProperty('sat','visibility',e.target.value==='sat'?'visible':'none');map.setLayoutProperty('osm','visibility',e.target.value==='osm'?'visible':'none');};
 $('ter').onchange=e=>map.setTerrain(e.target.checked?{source:'dem',exaggeration:1.6}:null);
@@ -60,7 +60,7 @@ async function refresh(){
     seen.add(s.id); const tg=target(s); if(!tg) continue;
     let t=trains[s.id];
     if(!t){const el=document.createElement('div');el.className='t';el.style.background=COLORS[s.line];el.textContent=s.no;
-      el.onclick=()=>select(s.id);t={el,marker:new maplibre.Marker({element:el}).setLngLat(coord(s.chain,tg.seg,tg.f)).addTo(map),seg:tg.seg,f:tg.f};trains[s.id]=t;
+      el.onclick=()=>select(s.id);t={el,marker:new maplibregl.Marker({element:el}).setLngLat(coord(s.chain,tg.seg,tg.f)).addTo(map),seg:tg.seg,f:tg.f};trains[s.id]=t;
       const o=document.createElement('option');o.value=s.id;o.textContent=s.no;$('pick').appendChild(o);}
     // keep dead-reckoned position unless server moved the train to a different segment/further along
     const moved = tg.seg!==t.seg || (tg.dir*(tg.f-t.f)>0.15) ;
