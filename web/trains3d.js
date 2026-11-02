@@ -8,12 +8,14 @@ const CAPACITY = 400;
 export async function addTrainModels(map) {
   const loader = new GLTFLoader();
   const load = url => new Promise((ok, no) => loader.load(url, g => ok(g.scene), undefined, no));
-  const [qsy, btc] = await Promise.all([load('/models/qsy.glb'), load('/models/btc.glb')]);
+  const NAMES = ['qsy', 'btc', 'cnr_ans', 'cnr_anf', 'cnr_arc', 'cnr_pwr'];
+  const roots = await Promise.all(NAMES.map(n => load(`/models/${n}.glb`)));
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8678, 1.5));
-  const sun = new THREE.DirectionalLight(0xfff4e6, 1.7); sun.position.set(.4, .5, 1); scene.add(sun);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8678, 1.35));
+  const sun = new THREE.DirectionalLight(0xfff4e6, .95); sun.position.set(.4, .5, 1); scene.add(sun);
   const types = {};
-  for (const [name, root] of [['qsy', qsy], ['btc', btc]]) {
+  for (const [i, name] of NAMES.entries()) {
+    const root = roots[i];
     const parts = [];
     root.updateMatrixWorld(true);
     root.traverse(o => { if (o.isMesh) {
@@ -32,7 +34,7 @@ export async function addTrainModels(map) {
     render(gl, args) {
       const c = map.getCenter(), org = maplibregl.MercatorCoordinate.fromLngLat(c, 0), unit = org.meterInMercatorCoordinateUnits();
       const kx = 111320 * Math.cos(c.lat * Math.PI / 180), ky = 111320;
-      const n = { qsy: 0, btc: 0 };
+      const n = Object.fromEntries(NAMES.map(t => [t, 0]));
       for (const v of window.trainCars || []) {
         const parts = types[v.type]; if (!parts || n[v.type] >= CAPACITY) continue;
         const b = v.brg * Math.PI / 180, p = v.pitch || 0;

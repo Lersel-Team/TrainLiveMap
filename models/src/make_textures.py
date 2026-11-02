@@ -105,8 +105,48 @@ def btc_end():
     d.rectangle([0, y(1.66), ROW, ROW], fill=BLUE)
     return weather(im, streak=1, grime=.2)
 
+# ---------------- CNR stainless cars, from a photo of a set at Bangkok station. Length 23 m (estimated), sill 1.0 to eave 3.2 m.
+CL, Cz0, CzE = 23.0, 1.0, 3.2
+STEEL_A, STEEL_B, CRED, YEL_C = (170, 172, 176), (150, 152, 156), (176, 36, 46), (222, 160, 20)
+def cnr_side(windows, ww, z1, z2, label, seen, grilles=()):
+    im = Image.new('RGB', (S, ROW), STEEL_A); d = ImageDraw.Draw(im)
+    Y = lambda z: (1 - (z - Cz0) / (CzE - Cz0)) * ROW
+    U = lambda x: ((CL / 2 - x) if seen > 0 else (x + CL / 2)) / CL * S
+    # Horizontal ribs of the stainless skin
+    for z in np.arange(Cz0 + .03, CzE, .055):
+        d.line([(0, Y(z)), (S, Y(z))], fill=STEEL_B if int(z * 100) % 2 else (186, 188, 192), width=2)
+    d.rectangle([0, Y(1.62), S, ROW], fill=(158, 160, 164))
+    d.rectangle([0, Y(1.72), S, Y(1.62)], fill=CRED)              # lower red stripe
+    d.rectangle([0, Y(1.80), S, Y(1.76)], fill=(226, 226, 226))   # white between
+    d.rectangle([0, Y(1.88), S, Y(1.80)], fill=CRED)              # upper red stripe
+    for x in np.arange(-10, 11, 2.5): d.line([(U(x), Y(1.62)), (U(x), ROW)], fill=(128, 130, 134), width=3)  # sill panel joints
+    for c in windows:
+        a, b = U(c - ww / 2), U(c + ww / 2); a, b = min(a, b), max(a, b)
+        d.rectangle([a - 10, Y(z2) - 10, b + 10, Y(z1) + 10], fill=(40, 42, 46))     # window surround around the opening
+    for a0, a1, zb, zt in grilles:
+        a, b = sorted((U(a0), U(a1)))
+        d.rectangle([a, Y(zt), b, Y(zb)], fill=(50, 52, 56))
+        for y in np.arange(Y(zt) + 8, Y(zb), 22): d.rectangle([a + 6, y, b - 6, y + 9], fill=(112, 114, 118))
+    u = U(9.0 if seen > 0 else -9.0)
+    d.text((u, Y(1.54)), label, font=ImageFont.truetype(BOLD, 44), fill=(40, 42, 46))
+    return weather(im, streak=.45, grime=.13)
+def cnr_end():
+    im = Image.new('RGB', (ROW, ROW), YEL_C); d = ImageDraw.Draw(im)
+    for x in (60, 964): d.rectangle([x - 5, 140, x + 5, 900], fill=(180, 124, 14))
+    return weather(im, streak=.6, grime=.16)
+
 def atlas(a, b, e, path):
     im = Image.new('RGB', (S, S), (110, 110, 110)); im.paste(a, (0, 0)); im.paste(b, (0, ROW)); im.paste(e, (0, S - ROW))
     im.save(path, quality=88); print(path, os.path.getsize(path))
 atlas(qsy_side(False), qsy_side(True), qsy_end(), os.path.join(HERE, 'qsy.jpg'))
 atlas(btc_side(1), btc_side(-1), btc_end(), os.path.join(HERE, 'btc.jpg'))
+CARS = {
+  'cnr_ans': dict(windows=[(-9.0 + i * 2.0) for i in range(10)], ww=1.25, z1=1.98, z2=2.72, label='ANS'),
+  'cnr_anf': dict(windows=[(-9.35 + i * 1.7) for i in range(12)], ww=.95, z1=1.98, z2=2.72, label='ANF'),
+  'cnr_arc': dict(windows=[(-8.75 + i * 2.5) for i in range(8)], ww=1.9, z1=1.95, z2=2.8, label='ARC'),
+  'cnr_pwr': dict(windows=[-9.2, 9.2], ww=.8, z1=2.1, z2=2.7, label='PWR', grilles=[(-7.6, -2.2, 1.95, 2.95), (2.2, 7.6, 1.95, 2.95)]),
+}
+import json
+json.dump(CARS, open(os.path.join(HERE, 'cnr_layouts.json'), 'w'))
+for name, c in CARS.items():
+    atlas(cnr_side(seen=1, **c), cnr_side(seen=-1, **c), cnr_end(), os.path.join(HERE, name + '.jpg'))

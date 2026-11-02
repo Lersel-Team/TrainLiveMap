@@ -304,16 +304,84 @@ def btc(coll, tex):
     m.cyl_x((.0, .55, .42), .15, 1.6, STEEL, n=10)
     return m.finish(coll)
 
+# =============================================================== CNR stainless set
+def cnr(coll, name, tex, c):
+    L, hw, z0, zE, zTop = 23.0, 1.46, 1.0, 3.2, 3.78
+    TEX, ROOF, DARK, WHEEL, STEEL, FRAME, GLASS, BLACK, YEL, TAIL = range(10)
+    mats = [tex, flat('cnr_roof', (.60, .61, .62), .55, .4), flat('dark', (.16, .16, .17), .75), flat('wheel', (.26, .25, .24), .5, .5), flat('steel', (.46, .47, .48), .6, .3),
+            flat('cnr_frame', (.14, .15, .16), .5), flat('glass', (.05, .08, .11), .12, .7), flat('black', (.05, .05, .06), .8), flat('cnr_yel', (.86, .62, .08), .55), flat('tail', (.85, .08, .08), .4)]
+    m = M(name.upper(), mats)
+    def wall_y(z): return hw - (.08 * ((1.25 - z) / .25) ** 2 if z < 1.25 else 0)
+    uv = lambda x, z, seen: side_uv(L, z0, zE, x, z, seen)
+    ww, z1, z2 = c['ww'], c['z1'], c['z2']
+    ops = [(x - ww / 2, x + ww / 2, z1, z2) for x in c['windows']]
+    xs = sorted({-L / 2, L / 2} | {o[0] for o in ops} | {o[1] for o in ops})
+    zs = [z0, 1.12, 1.25, z1, z2, zE]
+    def hole(xa, xb, za, zb):
+        return any(xa >= o[0] - 1e-6 and xb <= o[1] + 1e-6 and za >= o[2] - 1e-6 and zb <= o[3] + 1e-6 for o in ops)
+    for seen in (1, -1):
+        def quad(P, mat, uvs=None):
+            if seen < 0: P = [P[1], P[0], P[3], P[2]]; uvs = uvs and [uvs[1], uvs[0], uvs[3], uvs[2]]
+            m.face(P, mat, uvs)
+        for i in range(len(xs) - 1):
+            xa, xb = xs[i], xs[i + 1]
+            for k in range(len(zs) - 1):
+                za, zb = zs[k], zs[k + 1]
+                if hole(xa, xb, za, zb): continue
+                P = [(xa, seen * wall_y(za), za), (xb, seen * wall_y(za), za), (xb, seen * wall_y(zb), zb), (xa, seen * wall_y(zb), zb)]
+                quad(P, TEX, [uv(p[0], p[2], seen) for p in P])
+        for a, b, cc, d in ops:
+            yo, yi = seen * hw, seen * (hw - .05)
+            for Q in ([(a, yi, cc), (b, yi, cc), (b, yo, cc), (a, yo, cc)], [(a, yo, d), (b, yo, d), (b, yi, d), (a, yi, d)], [(a, yi, cc), (a, yo, cc), (a, yo, d), (a, yi, d)], [(b, yo, cc), (b, yi, cc), (b, yi, d), (b, yo, d)]):
+                quad(Q, FRAME)
+            quad([(a, yi, cc), (b, yi, cc), (b, yi, d), (a, yi, d)], GLASS)
+        for sx in (-1, 1):
+            dx = sx * 10.75                                   # plug door: outline, window, handle, step
+            dy = seen * (hw + .006)
+            m.box((dx, dy, 1.95), (.9, .012, 1.7), BLACK); m.box((dx, seen * (hw + .012), 1.95), (.84, .012, 1.64), STEEL)
+            m.box((dx, seen * (hw + .018), 2.42), (.46, .012, .62), GLASS)
+            m.box((dx, seen * (hw - .02), .78), (.8, .24, .05), STEEL); m.box((dx, seen * (hw - .02), .52), (.8, .24, .05), STEEL)
+            for off in (-.5, .5): m.rod((dx + off, seen * (hw + .05), 1.2), (dx + off, seen * (hw + .05), 2.55), .015, STEEL)
+    roof_and_ends(m, L, hw, z0, zE, zTop, ROOF, lambda z: L / 2, lambda x, z: hw, rows=[z0, zE], n=22, arc=8)
+    for sy in (-1, 1): m.box((0, sy * (hw + .01), zE + .02), (L, .04, .04), STEEL)   # gutter
+    # Roof A/C package at each end with its louvres; end walls, gangway, tail lamps, ladder rungs
+    for sx in (-1, 1):
+        ex = sx * L / 2
+        m.box((sx * (L / 2 - 1.5), 0, zTop + .12), (2.6, 2.0, .36), DARK)
+        for i in range(10): m.box((sx * (L / 2 - 2.65 + i * .25), 0, zTop + .31), (.1, 1.9, .04), BLACK)
+        for sy in (-1, 1):
+            for i in range(8): m.box((sx * (L / 2 - 2.5 + i * .25), sy * 1.01, zTop + .12), (.1, .02, .26), STEEL)
+            m.cyl_x((ex + sx * .03, sy * .95, 2.95), .07, .04, TAIL, n=10)
+            for z in (1.5, 1.85, 2.2, 2.55): m.box((ex + sx * .04, sy * .62, z), (.05, .28, .03), BLACK)
+        # Gangway door with its window, and the bellows frame around it
+        m.box((ex + sx * .01, 0, 1.98), (.03, .92, 2.0), FRAME)
+        m.box((ex + sx * .025, 0, 1.98), (.02, .84, 1.92), YEL)
+        m.box((ex + sx * .04, 0, 2.5), (.02, .36, .66), GLASS)
+        m.box((ex + sx * .06, 0, 1.0), (.2, 1.3, .08), STEEL)
+        bogie(m, sx * 8.1, 2, 2.4, .43, WHEEL, BLACK, DARK, STEEL)
+        coupler(m, ex + sx * .22, sx, .86, BLACK, STEEL)
+        for sy in (-.4, .4): m.box((ex + sx * .1, sy, .95), (.15, .1, .14), STEEL)   # hose brackets, as in the photo
+    # Equipment skirt and under-floor boxes
+    m.box((0, 0, .96), (L - .1, 2.72, .08), BLACK)
+    for x, w, h in ((-4.2, 2.2, .46), (-1.3, 1.9, .5), (1.4, 2.2, .46), (4.3, 2.0, .42)):
+        m.box((x, 0, .92 - h / 2), (w, 2.4, h), DARK)
+        for i in range(int(w / .4)):
+            for sy in (-1, 1): m.box((x - w / 2 + .2 + i * .4, sy * 1.21, .92 - h / 2), (.04, .02, h - .06), BLACK)
+    return m.finish(coll)
+
 coll = bpy.data.collections.get('TrainLiveMap') or bpy.data.collections.new('TrainLiveMap')
 if coll.name not in bpy.context.scene.collection.children: bpy.context.scene.collection.children.link(coll)
 for o in list(coll.objects):
     me = o.data; bpy.data.objects.remove(o); bpy.data.meshes.remove(me)
-a = qsy(coll, textured('qsy_body', os.path.join(HERE, 'qsy.jpg')))
-b = btc(coll, textured('btc_body', os.path.join(HERE, 'btc.jpg')))
-a.location.y = 0; b.location.y = 5
+import json
+layouts = json.load(open(os.path.join(HERE, 'cnr_layouts.json')))
+vehicles = [(qsy(coll, textured('qsy_body', os.path.join(HERE, 'qsy.jpg'))), 'qsy'), (btc(coll, textured('btc_body', os.path.join(HERE, 'btc.jpg'))), 'btc')]
+for name, c in layouts.items():
+    vehicles.append((cnr(coll, name, textured(name + '_body', os.path.join(HERE, name + '.jpg')), c), name))
+for i, (ob, name) in enumerate(vehicles): ob.location.y = 5 * i
 bpy.context.view_layer.update()
 os.makedirs(OUT, exist_ok=True)
-for ob, name in ((a, 'qsy'), (b, 'btc')):
+for ob, name in vehicles:
     bpy.ops.object.select_all(action='DESELECT'); ob.select_set(True); bpy.context.view_layer.objects.active = ob
     loc = ob.location.copy(); ob.location = (0, 0, 0); bpy.context.view_layer.update()
     bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, name + '.glb'), export_format='GLB', use_selection=True, export_yup=True, export_apply=False, export_animations=False, export_cameras=False, export_lights=False, export_image_format='AUTO')

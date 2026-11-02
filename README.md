@@ -15,3 +15,5 @@ Run: `node src/server.mjs` then open http://localhost:3000
 Not included: ttsview train list and consist. That API needs a login token behind a Cloudflare Turnstile bot check.
 
 Track data: download `https://download.geofabrik.de/asia/thailand-latest.osm.pbf`, then run `python3 scripts/rail_from_pbf.py thailand.osm.pbf data/rail.geojson`.
+
+Models: `web/models/*.glb` are built by `models/src/make_textures.py` then `models/src/build_models.py` (run inside Blender 4.4, with `MODEL_SRC` set to `models/src`). Dimensions are estimated from photos and diagrams. Consists are approximate, because the live feed has no consist data.
