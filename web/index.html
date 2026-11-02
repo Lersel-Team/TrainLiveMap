@@ -25,6 +25,7 @@ button{margin:2px}
  <select id="pick"><option value="">— select train —</option></select>
  <button id="follow">Follow</button><button id="stop">Stop</button>
  <div id="info" style="margin-top:6px"></div>
+ <div id="hint" style="margin-top:6px;display:none"><b>Following:</b> drag to orbit, scroll to zoom</div>
  <div style="margin-top:6px;color:#555">Positions are estimated: timetable plus live delay where available, otherwise 60 km/h.</div>
 </div>
 <script>
@@ -125,7 +126,8 @@ function frame(now){
   if(drawAll||following)drawBoxes();
   if(following&&selected&&trains[selected]){
     const t=trains[selected];
-    map.jumpTo({center:t.pos||t.marker.getLngLat(),bearing:t.head||0,pitch:72,zoom:Math.max(map.getZoom(),14)});}
+    // Only the position is tracked, so zoom, rotation and tilt stay under the user's control. Moving the map mid-gesture would cancel it.
+    if(t.pos&&!pointersDown.size&&!map.isMoving())map.setCenter(t.pos);}
   info(); requestAnimationFrame(frame);
 }
 function bearingTo(ll,p){const t=x=>x*Math.PI/180,y=Math.sin(t(p.lon-ll.lng))*Math.cos(t(p.lat)),x=Math.cos(t(ll.lat))*Math.sin(t(p.lat))-Math.sin(t(ll.lat))*Math.cos(t(p.lat))*Math.cos(t(p.lon-ll.lng));return (Math.atan2(y,x)*180/Math.PI+360)%360;}
@@ -133,8 +135,30 @@ function select(id){selected=id;$('pick').value=id;Object.values(trains).forEach
 function info(){const t=trains[selected];if(!t||!t.s){$('info').textContent='';return;}const s=t.s;
  $('info').innerHTML=`Train <b>${s.no}</b> · line ${s.line}<br>${s.atStation?'At station':'Running (estimated)'} · ${t.sp?'timetable':'no timetable'}<br>Delay: ${s.lateMin} min · ${s.time}<br>Est. speed: ${t.speed==null?'–':t.speed===0?'0 km/h (stopped or waiting for next report)':Math.round(t.speed)+' km/h ('+(t.sp?'timetable average':'assumed')+')'}`;}
 $('pick').onchange=e=>e.target.value&&select(e.target.value);
-$('follow').onclick=()=>{if(selected){following=true;}};
-$('stop').onclick=()=>{following=false;map.easeTo({pitch:55,bearing:0});};
+let orbit=null; const pointersDown=new Set();
+function setFollowing(on){
+  following=on;
+  if(on){map.dragPan.disable();map.dragRotate.disable();map.scrollZoom.enable({around:'center'});map.touchZoomRotate.enable({around:'center'});}
+  else{orbit=null;map.dragPan.enable();map.dragRotate.enable();map.scrollZoom.enable();map.touchZoomRotate.enable();}
+  $('hint').style.display=on?'':'none';
+}
+$('follow').onclick=()=>{const t=trains[selected];if(!t)return;
+  map.jumpTo({center:t.pos||t.marker.getLngLat(),bearing:t.head||0,pitch:72,zoom:Math.max(map.getZoom(),14)});setFollowing(true);};
+$('stop').onclick=()=>{setFollowing(false);map.easeTo({pitch:55,bearing:0});};
+// While following, dragging with the left or right button, or one finger, orbits around the train.
+const cv=map.getCanvasContainer();
+cv.addEventListener('contextmenu',e=>{if(following)e.preventDefault();});
+cv.addEventListener('pointerdown',e=>{
+  pointersDown.add(e.pointerId);
+  if(!following)return;
+  if(!e.isPrimary||(e.button!==0&&e.button!==2)||pointersDown.size>1){orbit=null;return;}
+  orbit={id:e.pointerId,x:e.clientX,y:e.clientY,b:map.getBearing(),p:map.getPitch()};
+});
+window.addEventListener('pointermove',e=>{
+  if(!orbit||e.pointerId!==orbit.id)return;
+  map.jumpTo({bearing:orbit.b-(e.clientX-orbit.x)*.4,pitch:Math.max(0,Math.min(85,orbit.p+(e.clientY-orbit.y)*.3))});
+});
+for(const ev of ['pointerup','pointercancel'])window.addEventListener(ev,e=>{pointersDown.delete(e.pointerId);orbit=null;});
 map.on('dragstart',()=>{following=false;});
 async function addRailAndStations(){
   railData=await fetch('/api/rail').then(r=>r.json()); indexRail();
