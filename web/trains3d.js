@@ -10,8 +10,8 @@ export async function addTrainModels(map) {
   const load = url => new Promise((ok, no) => loader.load(url, g => ok(g.scene), undefined, no));
   const [qsy, btc] = await Promise.all([load('/models/qsy.glb'), load('/models/btc.glb')]);
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x777766, 2.2));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(.4, .5, 1); scene.add(sun);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8678, 1.5));
+  const sun = new THREE.DirectionalLight(0xfff4e6, 1.7); sun.position.set(.4, .5, 1); scene.add(sun);
   const types = {};
   for (const [name, root] of [['qsy', qsy], ['btc', btc]]) {
     const parts = [];
