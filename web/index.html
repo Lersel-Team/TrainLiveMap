@@ -10,7 +10,6 @@ html,body,#map{margin:0;height:100%;font-family:system-ui,sans-serif}
 .sel{outline:3px solid #ff0}
 .st{font:11px/1.1 system-ui,sans-serif;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;pointer-events:none;transform-origin:left}
 .st b{font-weight:600}.st span{opacity:.85;font-size:10px}
-#map.far .st.minor{display:none}#map.nolabels .st{display:none}
 button{margin:2px}
 </style></head><body>
 <div id="map"></div>
@@ -104,16 +103,21 @@ function schedulePos(s){
   const l=K[K.length-1];return {lon:l.lon,lat:l.lat,next:l};
 }
 let last=performance.now();
+let lastTrainDraw=0;
 function frame(now){
   const dt=(now-last)/1000; last=now;
+  const drawAll=now-lastTrainDraw>250; if(drawAll)lastTrainDraw=now;
+  const bd=map.getBounds();
   for(const id in trains){const t=trains[id],s=t.s; if(!s) continue;
+    if(!(drawAll||(following&&id===selected))){t.dt=(t.dt||0)+dt;continue;}
+    const tdt=(t.dt||0)+dt; t.dt=0;
     const sp=schedulePos(s); t.sp=sp;
-    if(sp){t.marker.setLngLat([sp.lon,sp.lat]);continue;}
+    if(sp){if(id===selected||bd.contains([sp.lon,sp.lat]))t.marker.setLngLat([sp.lon,sp.lat]);continue;}
     const c=chains[s.chain]; if(!c) continue;
     if(!s.atStation && s.status===0){ // dead reckoning toward next station in travel direction, capped at that station
-      const a=c[t.seg],b=c[t.seg+1]; if(b){const len=Math.max(hav(a,b),0.1);t.f+=s.dir*(SPEED_KMH/3600)*dt/len;
+      const a=c[t.seg],b=c[t.seg+1]; if(b){const len=Math.max(hav(a,b),0.1);t.f+=s.dir*(SPEED_KMH/3600)*tdt/len;
         t.f=Math.min(Math.max(t.f,0),1);}}
-    t.marker.setLngLat(coord(s.chain,t.seg,t.f));}
+    const ll=coord(s.chain,t.seg,t.f); if(id===selected||bd.contains(ll))t.marker.setLngLat(ll);}
   if(following&&selected&&trains[selected]){
     const t=trains[selected],ll=t.marker.getLngLat(),c=chains[t.s.chain];
     const ahead=t.sp?t.sp.next:(t.s.dir>0?c[t.seg+1]||c[t.seg]:c[t.seg]);
@@ -135,13 +139,27 @@ async function addRailAndStations(){
   const st=await fetch('/api/stations').then(r=>r.json());
   map.addSource('st',{type:'geojson',data:{type:'FeatureCollection',features:st.map(s=>({type:'Feature',properties:{},geometry:{type:'Point',coordinates:[s.lon,s.lat]}}))}});
   map.addLayer({id:'st',type:'circle',source:'st',paint:{'circle-radius':['interpolate',['linear'],['zoom'],5,1.5,12,5],'circle-color':'#fff','circle-stroke-color':'#000','circle-stroke-width':1}});
-  for(const s of st){const el=document.createElement('div');el.className='st'+(s.major?'':' minor');
-    const b=document.createElement('b');b.textContent=s.th;el.appendChild(b);
-    if(s.en&&s.en!==s.th){const e=document.createElement('span');e.textContent=' '+s.en;el.appendChild(e);}
-    new maplibregl.Marker({element:el,anchor:'left',offset:[7,0]}).setLngLat([s.lon,s.lat]).addTo(map);}
-  const far=()=>$('map').classList.toggle('far',map.getZoom()<8);map.on('zoom',far);far();
+  allStations=st; map.on('move',scheduleLabels); map.on('moveend',syncLabels); syncLabels();
+}
+// Only stations in frame exist as DOM markers; everything else costs nothing.
+let allStations=[], labelTimer=null; const labelMarkers=new Map(); const MAX_LABELS=120, ALL_LABELS_ZOOM=8;
+function scheduleLabels(){if(!labelTimer)labelTimer=setTimeout(()=>{labelTimer=null;syncLabels();},300);}
+function makeLabel(s){const el=document.createElement('div');el.className='st';
+  const b=document.createElement('b');b.textContent=s.th;el.appendChild(b);
+  if(s.en&&s.en!==s.th){const e=document.createElement('span');e.textContent=' '+s.en;el.appendChild(e);}
+  return new maplibregl.Marker({element:el,anchor:'left',offset:[7,0]}).setLngLat([s.lon,s.lat]).addTo(map);}
+function syncLabels(){
+  const want=new Set();
+  if($('labels').checked){
+    const z=map.getZoom(),bd=map.getBounds(),c=map.getCenter(),d=s=>(s.lon-c.lng)**2+(s.lat-c.lat)**2;
+    const inView=allStations.filter(s=>(s.major||z>=ALL_LABELS_ZOOM)&&bd.contains([s.lon,s.lat]));
+    inView.sort((x,y)=>(y.major-x.major)||(d(x)-d(y)));
+    for(const s of inView.slice(0,MAX_LABELS))want.add(s);
+  }
+  for(const [s,m] of labelMarkers)if(!want.has(s)){m.remove();labelMarkers.delete(s);}
+  for(const s of want)if(!labelMarkers.has(s))labelMarkers.set(s,makeLabel(s));
 }
 $('rail').onchange=e=>['rail-case','rail'].forEach(l=>map.setLayoutProperty(l,'visibility',e.target.checked?'visible':'none'));
-$('labels').onchange=e=>{$('map').classList.toggle('nolabels',!e.target.checked);map.setLayoutProperty('st','visibility',e.target.checked?'visible':'none');};
+$('labels').onchange=e=>{map.setLayoutProperty('st','visibility',e.target.checked?'visible':'none');syncLabels();};
 map.on('load',async()=>{await addRailAndStations();timetable=await fetch('/api/timetable').then(r=>r.json());await refresh();setInterval(refresh,15000);requestAnimationFrame(frame);});
 </script></body></html>
