@@ -22,7 +22,7 @@ button{margin:2px}
 </div>
 <script>
 const SPEED_KMH = 60, COLORS = {1:'#c0392b',2:'#2980b9',3:'#27ae60',4:'#8e44ad'};
-const map = new maplibregl.Map({container:'map',center:[100.9,14.5],zoom:6.5,pitch:55,maxPitch:85,style:{version:8,
+const map = new maplibregl.Map({container:'map',bounds:[[97.3,5.6],[105.7,20.5]],fitBoundsOptions:{padding:20},pitch:0,maxPitch:85,style:{version:8,
  sources:{
   sat:{type:'raster',tiles:['https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/g/{z}/{y}/{x}.jpg'],tileSize:256,maxzoom:13,attribution:'Sentinel-2 cloudless by EOX (Copernicus data 2021)'},
   osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,maxzoom:19,attribution:'© OpenStreetMap contributors'},
