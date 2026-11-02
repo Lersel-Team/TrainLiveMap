@@ -13,7 +13,7 @@ console.log('timetable:', Object.keys(timetable.trains).length, 'trains; station
 const UA = { 'User-Agent': 'TrainLiveMap/0.1 (personal project)' };
 
 // chains[`${line}:${stationGrid}`] = [{row, lat, lon, name}] ; gridToChain maps any grid (incl. track-only grids)
-const chains = {}, gridToChain = {}, rowName = {};
+const chains = {}, gridToChain = {}, rowName = {}, srtStations = new Map();
 async function loadStructure() {
   for (const line of [1, 2, 3, 4]) {
     const d = await (await fetch(`${BASE}/structure?line=${line}`, { headers: UA })).json();
@@ -21,7 +21,11 @@ async function loadStructure() {
     for (const g of d.detail) {
       const pts = g.grid_detail.filter(c => c.is_name_tag && stations[c.id])
         .map(c => ({ row: c.grid_row, lat: stations[c.id].lat, lon: stations[c.id].lon, name: c.th_name }));
-      for (const c of g.grid_detail) if (c.is_name_tag) rowName[`${line}:${g.grid_id}:${c.grid_row}`] = normName(c.en_name);
+      for (const c of g.grid_detail) if (c.is_name_tag) {
+        rowName[`${line}:${g.grid_id}:${c.grid_row}`] = normName(c.en_name);
+        const k = stations[c.id];
+        if (k && !srtStations.has(c.th_name)) srtStations.set(c.th_name, { th: c.th_name, en: c.en_name, lat: k.lat, lon: k.lon, major: c.class === 1 });
+      }
       if (pts.length) { chains[`${line}:${g.grid_id}`] = pts; stGrids.push(g.grid_id); }
     }
     for (const g of d.detail) {
@@ -55,11 +59,11 @@ http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   if (u.pathname === '/api/trains') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify(state)); }
   if (u.pathname === '/api/timetable') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify(timetable.trains)); }
-  const dataFile = { '/api/stations': 'osm-stations.json', '/api/rail': 'rail.geojson' }[u.pathname];
-  if (dataFile) {
-    const f = path.join(ROOT, 'data', dataFile);
+  if (u.pathname === '/api/stations') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify([...srtStations.values()])); }
+  if (u.pathname === '/api/rail') {
+    const f = path.join(ROOT, 'data/rail.geojson');
     res.setHeader('content-type', 'application/json');
-    if (!fs.existsSync(f)) return res.end(dataFile.endsWith('.geojson') ? '{"type":"FeatureCollection","features":[]}' : '[]');
+    if (!fs.existsSync(f)) return res.end('{"type":"FeatureCollection","features":[]}');
     return fs.createReadStream(f).pipe(res);
   }
   if (u.pathname === '/api/chains') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify(chains)); }

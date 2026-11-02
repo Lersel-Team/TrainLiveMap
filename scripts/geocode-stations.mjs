@@ -21,7 +21,6 @@ for (const line of [1,2,3,4]) {
   }
 }
 // Same-named stations exist in OSM: use unambiguous stations in the grid as the reference point.
-const major = new Set();
 const med = a => [...a].sort((x, y) => x - y)[a.length >> 1];
 for (const x of cand) {
   const sure = cand.filter(y => y.line === x.line && y.grid === x.grid && new Set(y.hit.map(h => h.id)).size === 1);
@@ -31,12 +30,7 @@ for (const x of cand) {
     best = x.hit.reduce((b, h) => ((h.lat-la)**2 + (h.lon-lo)**2 < (b.lat-la)**2 + (b.lon-lo)**2 ? h : b));
   }
   out[x.c.id] = { th: x.c.th_name, en: x.c.en_name, lat: best.lat, lon: best.lon };
-  if (x.c.class === 1) major.add(best.id);
 }
 fs.writeFileSync('data/stations.json', JSON.stringify(out,null,1));
-// Every OSM station and halt in Thailand, for the map's label layer.
-const all = ov.elements.filter(e => e.tags?.['name:th'] || e.tags?.name).map(e => ({ th: e.tags['name:th'] || e.tags.name, en: e.tags['name:en'] || '', lat: e.lat, lon: e.lon, major: major.has(e.id) }));
-fs.writeFileSync('data/osm-stations.json', JSON.stringify(all));
-console.log('label stations', all.length, 'major', major.size);
 fs.writeFileSync('data/stations.missing.txt', miss.join('\n'));
 console.log('matched', Object.keys(out).length, 'missing', miss.length);

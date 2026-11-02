@@ -6,7 +6,7 @@
 <style>
 html,body,#map{margin:0;height:100%;font-family:system-ui,sans-serif}
 #panel{position:absolute;top:10px;left:10px;background:#fffd;padding:10px;border-radius:8px;max-width:260px;font-size:13px}
-.t{width:22px;height:22px;border-radius:50%;border:2px solid #fff;color:#fff;font:bold 9px/18px sans-serif;text-align:center;cursor:pointer;box-shadow:0 0 4px #000}
+.t{padding:0 4px;height:14px;border-radius:3px;border:1px solid #fff;color:#fff;font:bold 9px/14px sans-serif;text-align:center;cursor:pointer;box-shadow:0 0 3px #000;white-space:nowrap}
 .sel{outline:3px solid #ff0}
 .st{font:11px/1.1 system-ui,sans-serif;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;pointer-events:none;transform-origin:left}
 .st b{font-weight:600}.st span{opacity:.85;font-size:10px}
@@ -17,7 +17,7 @@ button{margin:2px}
  <b>TrainLiveMap</b> <span id="upd"></span><br>
  <select id="base"><option value="sat">Satellite</option><option value="osm">OpenStreetMap</option></select>
  <label><input type="checkbox" id="ter" checked> 3D terrain</label><br>
- <label><input type="checkbox" id="rail" checked> Rail lines</label>
+ <label><input type="checkbox" id="rail" checked> Track</label>
  <label><input type="checkbox" id="labels" checked> Station labels</label><br>
  <div>Tilt <input id="pitch" type="range" min="0" max="85" value="0" style="width:150px"> <span id="pv">0</span>°</div>
  <div>Rotate <input id="brg" type="range" min="0" max="360" value="0" style="width:130px"> <span id="bv">0</span>°</div>
@@ -35,7 +35,8 @@ const map = new maplibregl.Map({container:'map',bounds:[[97.3,5.6],[105.7,20.5]]
   osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,maxzoom:19,attribution:'© OpenStreetMap contributors'},
   dem:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],encoding:'terrarium',tileSize:256,maxzoom:15,attribution:'Terrain: AWS Open Data / Mapzen'}},
  layers:[{id:'sat',type:'raster',source:'sat'},{id:'osm',type:'raster',source:'osm',layout:{visibility:'none'}}],
- terrain:{source:'dem',exaggeration:1.6}}});
+ terrain:{source:'dem',exaggeration:1.6},
+ sky:{'sky-color':'#7fb2e5','horizon-color':'#d6e6f2','fog-color':'#d6e6f2','sky-horizon-blend':.7,'horizon-fog-blend':.6,'fog-ground-blend':.75,'atmosphere-blend':0}}});
 map.addControl(new maplibregl.NavigationControl({visualizePitch:true}));
 const $=id=>document.getElementById(id);
 $('base').onchange=e=>{map.setLayoutProperty('sat','visibility',e.target.value==='sat'?'visible':'none');map.setLayoutProperty('osm','visibility',e.target.value==='osm'?'visible':'none');};
@@ -73,7 +74,7 @@ async function refresh(){
     seen.add(s.id); const tg=target(s); if(!tg) continue;
     let t=trains[s.id];
     if(!t){const el=document.createElement('div');el.className='t';el.style.background=COLORS[s.line];el.textContent=s.no;
-      el.onclick=()=>select(s.id);t={el,marker:new maplibregl.Marker({element:el}).setLngLat(coord(s.chain,tg.seg,tg.f)).addTo(map),seg:tg.seg,f:tg.f};trains[s.id]=t;
+      el.onclick=()=>select(s.id);t={el,marker:new maplibregl.Marker({element:el,anchor:'bottom',offset:[0,-6]}).setLngLat(coord(s.chain,tg.seg,tg.f)).addTo(map),seg:tg.seg,f:tg.f};trains[s.id]=t;
       const o=document.createElement('option');o.value=s.id;o.textContent=s.no;$('pick').appendChild(o);}
     // keep dead-reckoned position unless server moved the train to a different segment/further along
     const moved = tg.seg!==t.seg || (tg.dir*(tg.f-t.f)>0.15) ;
@@ -112,20 +113,20 @@ function frame(now){
     if(!(drawAll||(following&&id===selected))){t.dt=(t.dt||0)+dt;continue;}
     const tdt=(t.dt||0)+dt; t.dt=0;
     const sp=schedulePos(s); t.sp=sp;
-    if(sp){if(id===selected||bd.contains([sp.lon,sp.lat]))t.marker.setLngLat([sp.lon,sp.lat]);continue;}
+    if(sp){place(t,id,[sp.lon,sp.lat],sp.next,bd);continue;}
     const c=chains[s.chain]; if(!c) continue;
     if(!s.atStation && s.status===0){ // dead reckoning toward next station in travel direction, capped at that station
       const a=c[t.seg],b=c[t.seg+1]; if(b){const len=Math.max(hav(a,b),0.1);t.f+=s.dir*(SPEED_KMH/3600)*tdt/len;
         t.f=Math.min(Math.max(t.f,0),1);}}
-    const ll=coord(s.chain,t.seg,t.f); if(id===selected||bd.contains(ll))t.marker.setLngLat(ll);}
+    place(t,id,coord(s.chain,t.seg,t.f),s.dir>0?c[t.seg+1]||c[t.seg]:c[t.seg],bd);}
+  if(drawAll||following)drawBoxes();
   if(following&&selected&&trains[selected]){
-    const t=trains[selected],ll=t.marker.getLngLat(),c=chains[t.s.chain];
-    const ahead=t.sp?t.sp.next:(t.s.dir>0?c[t.seg+1]||c[t.seg]:c[t.seg]);
-    map.jumpTo({center:ll,bearing:bearingTo(ll,ahead),pitch:72,zoom:Math.max(map.getZoom(),14)});}
+    const t=trains[selected];
+    map.jumpTo({center:t.pos||t.marker.getLngLat(),bearing:t.head||0,pitch:72,zoom:Math.max(map.getZoom(),14)});}
   info(); requestAnimationFrame(frame);
 }
 function bearingTo(ll,p){const t=x=>x*Math.PI/180,y=Math.sin(t(p.lon-ll.lng))*Math.cos(t(p.lat)),x=Math.cos(t(ll.lat))*Math.sin(t(p.lat))-Math.sin(t(ll.lat))*Math.cos(t(p.lat))*Math.cos(t(p.lon-ll.lng));return (Math.atan2(y,x)*180/Math.PI+360)%360;}
-function select(id){selected=id;$('pick').value=id;Object.values(trains).forEach(t=>t.el.classList.remove('sel'));trains[id]?.el.classList.add('sel');}
+function select(id){selected=id;$('pick').value=id;Object.values(trains).forEach(t=>t.el.classList.remove('sel'));trains[id]?.el.classList.add('sel');drawBoxes();}
 function info(){const t=trains[selected];if(!t||!t.s){$('info').textContent='';return;}const s=t.s;
  $('info').innerHTML=`Train <b>${s.no}</b> · line ${s.line}<br>${s.atStation?'At station':'Running (estimated)'} · ${t.sp?'timetable':'no timetable'}<br>Delay: ${s.lateMin} min · ${s.time}`;}
 $('pick').onchange=e=>e.target.value&&select(e.target.value);
@@ -133,13 +134,92 @@ $('follow').onclick=()=>{if(selected){following=true;}};
 $('stop').onclick=()=>{following=false;map.easeTo({pitch:55,bearing:0});};
 map.on('dragstart',()=>{following=false;});
 async function addRailAndStations(){
-  map.addSource('rail',{type:'geojson',data:'/api/rail',attribution:'Rail lines and stations © OpenStreetMap contributors'});
-  map.addLayer({id:'rail-case',type:'line',source:'rail',paint:{'line-color':'#000','line-opacity':.55,'line-width':['interpolate',['linear'],['zoom'],5,1.6,14,6]}});
-  map.addLayer({id:'rail',type:'line',source:'rail',paint:{'line-color':'#ffcc33','line-width':['interpolate',['linear'],['zoom'],5,.8,14,3.5]}});
+  railData=await fetch('/api/rail').then(r=>r.json()); indexRail();
+  map.addSource('rail',{type:'geojson',data:railData,attribution:'Track © OpenStreetMap contributors'});
+  map.addLayer({id:'rail-case',type:'line',source:'rail',maxzoom:TRACK3D_ZOOM+.5,paint:{'line-color':'#000','line-opacity':.55,'line-width':['interpolate',['linear'],['zoom'],5,1.6,12,4]}});
+  map.addLayer({id:'rail',type:'line',source:'rail',maxzoom:TRACK3D_ZOOM+.5,paint:{'line-color':'#ffcc33','line-width':['interpolate',['linear'],['zoom'],5,.8,12,2]}});
+  map.addSource('track3d',{type:'geojson',data:EMPTY});
+  map.addLayer({id:'track3d',type:'fill-extrusion',source:'track3d',minzoom:TRACK3D_ZOOM,paint:{'fill-extrusion-color':['get','c'],'fill-extrusion-height':['get','h'],'fill-extrusion-base':['get','b'],'fill-extrusion-vertical-gradient':false}});
+  map.addSource('trains3d',{type:'geojson',data:EMPTY});
+  map.addLayer({id:'trains3d',type:'fill-extrusion',source:'trains3d',paint:{'fill-extrusion-color':['get','c'],'fill-extrusion-height':['get','h'],'fill-extrusion-base':['get','b'],'fill-extrusion-opacity':.95}});
+  map.on('click','trains3d',e=>{const f=e.features&&e.features[0];if(f)select(f.properties.id);});
+  map.on('mouseenter','trains3d',()=>map.getCanvas().style.cursor='pointer');
+  map.on('mouseleave','trains3d',()=>map.getCanvas().style.cursor='');
   const st=await fetch('/api/stations').then(r=>r.json());
   map.addSource('st',{type:'geojson',data:{type:'FeatureCollection',features:st.map(s=>({type:'Feature',properties:{},geometry:{type:'Point',coordinates:[s.lon,s.lat]}}))}});
   map.addLayer({id:'st',type:'circle',source:'st',paint:{'circle-radius':['interpolate',['linear'],['zoom'],5,1.5,12,5],'circle-color':'#fff','circle-stroke-color':'#000','circle-stroke-width':1}});
-  allStations=st; map.on('move',scheduleLabels); map.on('moveend',syncLabels); syncLabels();
+  allStations=st; map.on('move',scheduleLabels); map.on('move',scheduleTrack); syncLabels(); syncTrack();
+}
+// ---- geometry helpers: metres on the ground <-> degrees
+const EMPTY={type:'FeatureCollection',features:[]}, TRACK3D_ZOOM=11, MAX_QUADS=9000;
+let railData=null; const railCells=new Map(), CELL=0.05;
+const rad=x=>x*Math.PI/180, mpp=lat=>78271.5*Math.cos(rad(lat))/2**map.getZoom();
+function quad(lon,lat,brg,lenM,widM,props){ // rectangle centred on lon/lat, long side along brg
+  const mx=111320*Math.cos(rad(lat)),my=111320,sn=Math.sin(rad(brg)),cs=Math.cos(rad(brg)),L=lenM/2,W=widM/2;
+  const pt=(a,b)=>[lon+(a*sn+b*cs)/mx,lat+(a*cs-b*sn)/my];
+  return {type:'Feature',properties:props,geometry:{type:'Polygon',coordinates:[[pt(L,W),pt(L,-W),pt(-L,-W),pt(-L,W),pt(L,W)]]}};
+}
+function indexRail(){
+  for(const f of railData.features){const c=f.geometry.coordinates;let a=180,b=90,x=-180,y=-90;
+    for(let i=0;i<c.length;i++){a=Math.min(a,c[i][0]);b=Math.min(b,c[i][1]);x=Math.max(x,c[i][0]);y=Math.max(y,c[i][1]);
+      if(i){const k=Math.floor(c[i][0]/CELL)+':'+Math.floor(c[i][1]/CELL);let l=railCells.get(k);if(!l)railCells.set(k,l=[]);l.push([c[i-1],c[i]]);}}
+    f.bbox=[a,b,x,y];}
+}
+// Nearest point on any track within about 5 km, with the track's direction there.
+function snapToTrack(lon,lat){
+  const cx=Math.floor(lon/CELL),cy=Math.floor(lat/CELL),k=Math.cos(rad(lat));let best=null,bd=1e9;
+  for(let i=-1;i<=1;i++)for(let j=-1;j<=1;j++){const l=railCells.get((cx+i)+':'+(cy+j));if(!l)continue;
+    for(const [p,q] of l){const dx=(q[0]-p[0])*k,dy=q[1]-p[1],len=dx*dx+dy*dy;if(!len)continue;
+      let u=(((lon-p[0])*k)*dx+(lat-p[1])*dy)/len;u=Math.max(0,Math.min(1,u));
+      const px=p[0]+(q[0]-p[0])*u,py=p[1]+(q[1]-p[1])*u,d=((px-lon)*k)**2+(py-lat)**2;
+      if(d<bd){bd=d;best={lon:px,lat:py,brg:(Math.atan2(dx,dy)*180/Math.PI+360)%360};}}}
+  return best;
+}
+// ---- 3D track, generated only for the area in view
+let trackView=null,trackTimer=null;
+function scheduleTrack(){if(!trackTimer)trackTimer=setTimeout(()=>{trackTimer=null;syncTrack();},500);}
+function syncTrack(){
+  const src=map.getSource('track3d');if(!src)return;
+  const z=map.getZoom(),c=map.getCenter();
+  if(z<TRACK3D_ZOOM){if(trackView){src.setData(EMPTY);trackView=null;}return;}
+  if(!$('rail').checked)return;
+  const b0=map.getBounds(),w=b0.getEast()-b0.getWest(),h=b0.getNorth()-b0.getSouth();
+  if(trackView&&Math.abs(trackView.z-z)<.2&&Math.abs(trackView.lng-c.lng)<w*.2&&Math.abs(trackView.lat-c.lat)<h*.2)return;
+  trackView={z,lng:c.lng,lat:c.lat};
+  const W=b0.getWest()-w*.3,E=b0.getEast()+w*.3,S=b0.getSouth()-h*.3,N=b0.getNorth()+h*.3,m=mpp(c.lat);
+  const piece=Math.max(40,12*m),ballast=Math.max(7,4*m),gauge=Math.max(1,1.1*m),railW=Math.max(.5,.6*m),rails=z>=13,sleepers=z>=14.5,gap=Math.max(6,7*m);
+  const out=[];
+  const BAL={c:'#6e665c',b:0,h:1.2},RL={c:'#d4d8dc',b:1.5,h:2.4},SL={c:'#4b3a2a',b:1.2,h:1.6};
+  for(const f of railData.features){const bb=f.bbox;if(bb[2]<W||bb[0]>E||bb[3]<S||bb[1]>N)continue;
+    const cs=f.geometry.coordinates;
+    for(let i=1;i<cs.length&&out.length<MAX_QUADS;i++){const p=cs[i-1],q=cs[i];
+      if(Math.max(p[0],q[0])<W||Math.min(p[0],q[0])>E||Math.max(p[1],q[1])<S||Math.min(p[1],q[1])>N)continue;
+      const lat=(p[1]+q[1])/2,dx=(q[0]-p[0])*111320*Math.cos(rad(lat)),dy=(q[1]-p[1])*111320,len=Math.hypot(dx,dy);if(!len)continue;
+      const brg=Math.atan2(dx,dy)*180/Math.PI,n=Math.max(1,Math.ceil(len/piece)),pl=len/n,sn=Math.sin(rad(brg)),cn=Math.cos(rad(brg)),mx=111320*Math.cos(rad(lat));
+      for(let k=0;k<n&&out.length<MAX_QUADS;k++){const u=(k+.5)/n,lo=p[0]+(q[0]-p[0])*u,la=p[1]+(q[1]-p[1])*u;
+        out.push(quad(lo,la,brg,pl*1.04,ballast,BAL));
+        if(rails)for(const o of [-gauge,gauge])out.push(quad(lo+o*cn/mx,la-o*sn/111320,brg,pl*1.04,railW,RL));
+        if(sleepers)for(let d=-pl/2+gap/2;d<pl/2;d+=gap)out.push(quad(lo+d*sn/mx,la+d*cn/111320,brg+90,ballast*.8,gap*.3,SL));
+      }}}
+  src.setData({type:'FeatureCollection',features:out});
+}
+// ---- trains: placeholder 3D boxes (swap for a real model later)
+function place(t,id,ll,ahead,bd){
+  const lon=ll.lng??ll[0],lat=ll.lat??ll[1],sn=railData&&snapToTrack(lon,lat);
+  const x=sn?sn.lon:lon,y=sn?sn.lat:lat,toAhead=ahead?bearingTo({lng:x,lat:y},ahead):0;
+  let brg=sn?sn.brg:toAhead; if(sn&&ahead&&Math.cos(rad(brg-toAhead))<0)brg=(brg+180)%360;
+  t.pos=[x,y];t.head=brg;
+  if(id===selected||bd.contains(t.pos))t.marker.setLngLat(t.pos);
+  const c=map.getCenter(),far=map.getPitch()>50&&id!==selected&&Math.hypot((x-c.lng)*Math.cos(rad(c.lat)),y-c.lat)>.2;
+  t.el.style.display=far?'none':'';
+}
+function drawBoxes(){
+  const src=map.getSource('trains3d');if(!src)return;
+  const fs=[];
+  for(const id in trains){const t=trains[id];if(!t.pos||!t.s)continue;
+    const m=mpp(t.pos[1]),L=Math.max(200,34*m),W=Math.max(14,9*m),H=Math.max(14,8*m);
+    fs.push(quad(t.pos[0],t.pos[1],t.head||0,L,W,{id,c:id===selected?'#ffee00':COLORS[t.s.line],b:Math.min(2.5,H*.1),h:H}));}
+  src.setData({type:'FeatureCollection',features:fs});
 }
 // Only stations in frame exist as DOM markers; everything else costs nothing.
 let allStations=[], labelTimer=null; const labelMarkers=new Map(); const MAX_LABELS=120, ALL_LABELS_ZOOM=8;
@@ -159,7 +239,7 @@ function syncLabels(){
   for(const [s,m] of labelMarkers)if(!want.has(s)){m.remove();labelMarkers.delete(s);}
   for(const s of want)if(!labelMarkers.has(s))labelMarkers.set(s,makeLabel(s));
 }
-$('rail').onchange=e=>['rail-case','rail'].forEach(l=>map.setLayoutProperty(l,'visibility',e.target.checked?'visible':'none'));
+$('rail').onchange=e=>{['rail-case','rail','track3d'].forEach(l=>map.setLayoutProperty(l,'visibility',e.target.checked?'visible':'none'));trackView=null;syncTrack();};
 $('labels').onchange=e=>{map.setLayoutProperty('st','visibility',e.target.checked?'visible':'none');syncLabels();};
 map.on('load',async()=>{await addRailAndStations();timetable=await fetch('/api/timetable').then(r=>r.json());await refresh();setInterval(refresh,15000);requestAnimationFrame(frame);});
 </script></body></html>
